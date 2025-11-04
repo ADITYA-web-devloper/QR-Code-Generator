@@ -184,6 +184,7 @@
                             <select id="qr-wifi-enc"
                                 class="w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                 <option value="WPA">WPA/WPA2</option>
+                                <option value="WPA3">WPA3</option>
                                 <option value="WEP">WEP</option>
                                 <option value="nopass">None</option>
                             </select>
@@ -228,10 +229,25 @@
         <main id="content-scan" class="tab-content hidden">
             <div class="text-center">
                 <!-- Start Button -->
-                <button id="start-scan-btn"
-                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900">
-                    Start Scan
-                </button>
+                <div id="scan-options" class="flex flex-col sm:flex-row gap-4">
+                    <button id="start-scan-btn"
+                        class="w-full sm:w-1/2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900">
+                        Scan with Camera
+                    </button>
+                    <button id="upload-scan-btn"
+                        class="w-full sm:w-1/2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900">
+                        Upload Image
+                    </button>
+                </div>
+
+                <!-- Hidden file input -->
+                <input type="file" id="qr-file-input" class="hidden" accept="image/*">
+                
+                <!-- Upload loading message -->
+                <p id="upload-loading-message" class="hidden text-sm text-gray-600 dark:text-gray-400 my-2 flex items-center justify-center">
+                    <span class="spinner mr-2"></span> Processing image...
+                </p>
+
 
                 <!-- Scanner UI -->
                 <div id="scanner-ui" class="hidden w-full mt-4">
@@ -319,6 +335,13 @@
             const scanResult = document.getElementById('scan-result');
             const copyBtn = document.getElementById('copy-btn');
             const scanAgainBtn = document.getElementById('scan-again-btn');
+            
+            // --- NEW SCANNER ELEMENTS ---
+            const scanOptions = document.getElementById('scan-options');
+            const uploadScanBtn = document.getElementById('upload-scan-btn');
+            const qrFileInput = document.getElementById('qr-file-input');
+            const uploadLoadingMsg = document.getElementById('upload-loading-message');
+
             let videoStream = null;
             let scanAnimationLoop = null;
 
@@ -505,7 +528,7 @@
             // Start the camera and scanning loop
             async function startScanner() {
                 // Reset UI
-                startScanBtn.classList.add('hidden');
+                scanOptions.classList.add('hidden'); // <-- MODIFIED
                 scanError.classList.add('hidden');
                 scanResultContainer.classList.add('hidden');
                 scannerUI.classList.remove('hidden');
@@ -537,7 +560,7 @@
                     scanError.textContent = 'Camera access denied. Please enable camera permissions in your browser settings.';
                     scanError.classList.remove('hidden');
                     scannerUI.classList.add('hidden');
-                    startScanBtn.classList.remove('hidden');
+                    scanOptions.classList.remove('hidden'); // <-- MODIFIED
                 }
             }
 
@@ -548,39 +571,39 @@
                     canvas.height = video.videoHeight;
                     canvas.width = video.videoWidth;
                     
-                    
+                    // Draw video frame to canvas
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
-                    
+                    // Get image data from canvas
                     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     
-                    
+                    // Try to decode QR code
                     const code = jsQR(imageData.data, imageData.width, imageData.height, {
                         inversionAttempts: "dontInvert",
                     });
 
                     if (code) {
-                        
+                        // --- QR Code Found! ---
                         stopScanner();
                         scanResult.value = code.data;
                         scanResultContainer.classList.remove('hidden');
                         scannerUI.classList.add('hidden');
                     } else {
-                        
-                        
+                        // --- No QR Code Found ---
+                        // Continue loop if still active
                         if (scanAnimationLoop) {
                             scanAnimationLoop = requestAnimationFrame(scanFrame);
                         }
                     }
                 } else {
-                    
+                    // Video not ready, try again
                     if (scanAnimationLoop) {
                         scanAnimationLoop = requestAnimationFrame(scanFrame);
                     }
                 }
             }
 
-            
+            // Stop the camera and scanning loop
             function stopScanner() {
                 if (scanAnimationLoop) {
                     cancelAnimationFrame(scanAnimationLoop);
@@ -593,23 +616,24 @@
                 video.pause();
                 video.srcObject = null;
                 video.classList.add('hidden');
-                stopScanBtn.classList.add('hidden');
+                stopScanBtn.classList.add('hidden'); // *** HIDE STOP BTN ***
                 scannerUI.classList.add('hidden');
             }
 
-            
+            // Reset the scanner UI to its initial state
             function resetScanner() {
                 stopScanner();
                 scanResultContainer.classList.add('hidden');
                 scanError.classList.add('hidden');
-                startScanBtn.classList.remove('hidden');
+                scanOptions.classList.remove('hidden'); // <-- MODIFIED
+                uploadLoadingMsg.classList.add('hidden'); // <-- ADDED
                 scanResult.value = '';
             }
 
-            
+            // Copy scan result to clipboard
             function copyResult() {
                 if (!navigator.clipboard) {
-                    
+                    // Fallback for older browsers
                     scanResult.select();
                     document.execCommand('copy');
                 } else {
@@ -618,7 +642,7 @@
                     });
                 }
 
-                
+                // Show "Copied!" message
                 const originalText = copyBtn.textContent;
                 copyBtn.textContent = 'Copied!';
                 copyBtn.disabled = true;
@@ -628,29 +652,107 @@
                 }, 2000);
             }
 
-            
+            // --- NEW FUNCTION: Handle File Upload ---
+            function handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (!file) {
+                    return;
+                }
+
+                // Reset UI
+                scanError.classList.add('hidden');
+                scanResultContainer.classList.add('hidden');
+                scanOptions.classList.add('hidden');
+                uploadLoadingMsg.classList.remove('hidden');
+
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        // Set canvas size to image size
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        
+                        // Draw image to canvas
+                        ctx.drawImage(img, 0, 0, img.width, img.height);
+                        
+                        // Get image data from canvas
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        
+                        // Try to decode QR code
+                        const code = jsQR(imageData.data, imageData.width, imageData.height);
+                        
+                        uploadLoadingMsg.classList.add('hidden');
+
+                        if (code) {
+                            // --- QR Code Found! ---
+                            scanResult.value = code.data;
+                            scanResultContainer.classList.remove('hidden');
+                        } else {
+                            // --- No QR Code Found ---
+                            scanError.textContent = 'No QR code found in the uploaded image.';
+                            scanError.classList.remove('hidden');
+                            scanOptions.classList.remove('hidden');
+                        }
+                        // Reset file input to allow re-uploading the same file
+                        qrFileInput.value = null;
+                    };
+
+                    img.onerror = () => {
+                        uploadLoadingMsg.classList.add('hidden');
+                        scanError.textContent = 'Failed to load the image. Please try another file.';
+                        scanError.classList.remove('hidden');
+                        scanOptions.classList.remove('hidden');
+                        qrFileInput.value = null;
+                    };
+
+                    img.src = e.target.result;
+                };
+
+                reader.onerror = () => {
+                    uploadLoadingMsg.classList.add('hidden');
+                    scanError.textContent = 'Failed to read the file.';
+                    scanError.classList.remove('hidden');
+                    scanOptions.classList.remove('hidden');
+                    qrFileInput.value = null;
+                };
+
+                reader.readAsDataURL(file);
+            }
+
+            // ===========================
+
+            // --- Generator Event Listeners ---
             qrTypeSelect.addEventListener('change', updateFormInputs);
             generateBtn.addEventListener('click', generateQRCode);
             clearBtn.addEventListener('click', clearFields);
             downloadBtn.addEventListener('click', downloadQRCode);
 
-            
+            // --- Scanner Event Listeners ---
             startScanBtn.addEventListener('click', startScanner);
-            stopScanBtn.addEventListener('click', resetScanner); 
+            stopScanBtn.addEventListener('click', resetScanner); // *** ADDED LISTENER ***
             scanAgainBtn.addEventListener('click', resetScanner);
             copyBtn.addEventListener('click', copyResult);
+            // --- NEW LISTENERS ---
+            uploadScanBtn.addEventListener('click', () => qrFileInput.click());
+            qrFileInput.addEventListener('change', handleFileSelect);
 
-            
+
+            // --- Tab Event Listeners ---
             tabs.generate.addEventListener('click', () => switchTab('generate'));
             tabs.scan.addEventListener('click', () => switchTab('scan'));
 
-            
-            switchTab('generate');
-            updateFormInputs();
+            // --- Initial State ---
+            switchTab('generate'); // Set "Generate" as the default active tab
+            updateFormInputs(); // Set the initial form for "Text"
 
         });
     </script>
 
 </body>
 </html>
+
+
 
